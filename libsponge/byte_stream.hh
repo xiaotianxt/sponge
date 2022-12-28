@@ -18,6 +18,12 @@ class ByteStream {
     // different approaches.
 
     bool _error{};  //!< Flag indicating that the stream suffered an error.
+    bool _allowin{true};
+    bool _allowout{true};
+    std::string _buffer{};
+    size_t _capacity{};
+    size_t _bytesin{};
+    size_t _bytesout{};
 
   public:
     //! Construct a stream with room for `capacity` bytes.
