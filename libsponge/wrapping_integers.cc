@@ -1,12 +1,7 @@
 #include "wrapping_integers.hh"
 
-// Dummy implementation of a 32-bit wrapping integer
-
-// For Lab 2, please replace with a real implementation that passes the
-// automated checks run by `make check_lab2`.
-
-template <typename... Targs>
-void DUMMY_CODE(Targs &&... /* unused */) {}
+#define MASK32 4294967296UL
+#define MASK31 2147483648UL
 
 using namespace std;
 
@@ -14,8 +9,10 @@ using namespace std;
 //! \param n The input absolute 64-bit sequence number
 //! \param isn The initial sequence number
 WrappingInt32 wrap(uint64_t n, WrappingInt32 isn) {
-    DUMMY_CODE(n, isn);
-    return WrappingInt32{0};
+    // first convert n to uint32_t
+    auto scaled_n = static_cast<uint32_t>(n);
+    // then add together, no need to get the remainder because the overflow handles.
+    return WrappingInt32{(isn.raw_value() + scaled_n)};
 }
 
 //! Transform a WrappingInt32 into an "absolute" 64-bit sequence number (zero-indexed)
@@ -29,6 +26,19 @@ WrappingInt32 wrap(uint64_t n, WrappingInt32 isn) {
 //! and the other stream runs from the remote TCPSender to the local TCPReceiver and
 //! has a different ISN.
 uint64_t unwrap(WrappingInt32 n, WrappingInt32 isn, uint64_t checkpoint) {
-    DUMMY_CODE(n, isn, checkpoint);
-    return {};
+    // get low 32 bit content
+    auto base = checkpoint - checkpoint % MASK32;
+    // get 32bit absolute seqno
+    auto diff = static_cast<uint32_t>(n - isn);
+    // one 64bit absolute seqno
+    auto center = base + diff;
+
+    if (center <= (UINT64_MAX - MASK31) && center < checkpoint && checkpoint - center > MASK31) {
+        // right value is closer
+        return center + MASK32;
+    } else if (center >= MASK32 && center > checkpoint && center - checkpoint > MASK31) {
+        // left value is closer
+        return center - MASK32;
+    }
+    return center;
 }
