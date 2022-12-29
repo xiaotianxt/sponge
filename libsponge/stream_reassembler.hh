@@ -4,6 +4,8 @@
 #include "byte_stream.hh"
 
 #include <cstdint>
+#include <iostream>
+#include <list>
 #include <queue>
 #include <string>
 #include <vector>
@@ -16,13 +18,14 @@ class StreamReassembler {
 
     ByteStream _output;  //!< The reassembled in-order byte stream
     size_t _capacity;    //!< The maximum number of bytes
-    std::priority_queue<std::pair<size_t, std::string>,
-                        std::vector<std::pair<size_t, std::string>>,
-                        std::greater<std::pair<size_t, std::string>>>
-        _unassembled;  //!< The unassembled substrings
+
+    std::list<std::pair<size_t, std::string>> _unassembled;  // !< The unassembled list
+    size_t _unassembled_bytes;
     size_t _next;      //!< The next index to be assembled (once this index is pushed, should assemble some strings)
     size_t _eof;       //!< The index of the end of the stream
-    size_t _size;      //!< The total usage bytes
+
+    void __push_to_list(const std::string &data, const size_t index);
+    void __reduce(const size_t amount);
 
   public:
     //! \brief Construct a `StreamReassembler` that will store up to `capacity` bytes.
