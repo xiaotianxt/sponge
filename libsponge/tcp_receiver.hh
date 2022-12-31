@@ -20,6 +20,18 @@ class TCPReceiver {
     //! The maximum number of bytes we'll store.
     size_t _capacity;
 
+    //! The absolute sequence number received last time.
+    uint64_t _seq{0};
+
+    //! The initial sequence number.
+    WrappingInt32 _isn{0};
+
+    //! If SYN has been received.
+    bool _syn_received{false};
+
+    //! If FIN has been received.
+    bool _fin_received{false};
+
   public:
     //! \brief Construct a TCP receiver
     //!
