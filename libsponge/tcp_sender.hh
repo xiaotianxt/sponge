@@ -7,6 +7,8 @@
 #include "wrapping_integers.hh"
 
 #include <functional>
+#include <iostream>
+#include <list>
 #include <queue>
 
 //! \brief The "sender" part of a TCP implementation.
@@ -31,6 +33,62 @@ class TCPSender {
 
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
+
+    //! the sender timer
+    size_t _timer{0};
+
+    //! the window size (size can be sent to IP), initially 1 bytes
+    uint64_t _window{1};
+
+    //! the bytes not acknoledged
+    size_t _bytes_in_flight{0};
+
+    //! the number of times retransmite a segment
+    size_t _retx_cnt{0};
+
+    //! the encapsulation of a TCPSegment that indicate a oustanding segment
+    class OutStandingSegment {
+      private:
+        //! the parent object
+        TCPSender &_parent;
+
+        //! the real TCPSegment.
+        TCPSegment _segment;
+
+        //! the time (ms) when the segment is sent.
+        size_t _sent_time{};
+
+        //! retransmission time (RTO), doubled every update.
+        size_t _rto{};
+
+        //! the (absolute) ackno want to receive.
+        uint64_t _ackno{};
+
+      public:
+        //! Initialize a OutStandingSegment
+        OutStandingSegment(TCPSender &parent, TCPSegment segment);
+
+        //! get the real tcp segment
+        const TCPSegment &tcp_segment() const { return _segment; }
+        TCPSegment &tcp_segment() { return _segment; }
+
+        //! if the oustanding segment is timeout
+        bool timeout() {
+            std::cout << "current time is " << _parent._timer << " is older than " << _sent_time + _rto << std::endl;
+            return _sent_time + _rto <= _parent._timer;
+        }
+
+        //! update state (double rto, update sent_time)
+        void update();
+
+        //! if the ackno covered this segment
+        bool ack(uint64_t abs_ackno) { return abs_ackno >= _ackno; }
+    };
+
+    //! outstanding segments that the TCPSender already sent but no ack.
+    std::list<OutStandingSegment> _segments_outstanding{};
+
+    OutStandingSegment send_segment(const bool syn, const bool fin, const std::optional<std::string> payload = {});
 
   public:
     //! Initialize a TCPSender
