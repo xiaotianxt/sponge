@@ -28,23 +28,31 @@ class TCPSender {
     //! retransmission timer for the connection
     unsigned int _initial_retransmission_timeout;
 
+    //! RTO for the first outstanding segment
+    unsigned int _rto{};
+
+    //! timer for the first outstanding segment
+    unsigned int _sent_time{};
+
+    //! the sender timer
+    size_t _timer{0};
+
     //! outgoing stream of bytes that have not yet been sent
     ByteStream _stream;
 
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
-
-    //! the sender timer
-    size_t _timer{0};
+    //! the (absolute) sequence number for the next byte to be acked
+    uint64_t _next_ackno{0};
 
     //! the window size (size can be sent to IP), initially 1 bytes
     uint64_t _window{1};
 
-    //! the bytes not acknoledged
-    size_t _bytes_in_flight{0};
-
     //! the number of times retransmite a segment
     size_t _retx_cnt{0};
+
+    //! this byte was sent because window size is `0`
+    bool _zero_window{false};
 
     //! the encapsulation of a TCPSegment that indicate a oustanding segment
     class OutStandingSegment {
@@ -54,12 +62,6 @@ class TCPSender {
 
         //! the real TCPSegment.
         TCPSegment _segment;
-
-        //! the time (ms) when the segment is sent.
-        size_t _sent_time{};
-
-        //! retransmission time (RTO), doubled every update.
-        size_t _rto{};
 
         //! the (absolute) ackno want to receive.
         uint64_t _ackno{};
@@ -72,17 +74,11 @@ class TCPSender {
         const TCPSegment &tcp_segment() const { return _segment; }
         TCPSegment &tcp_segment() { return _segment; }
 
-        //! if the oustanding segment is timeout
-        bool timeout() {
-            std::cout << "current time is " << _parent._timer << " is older than " << _sent_time + _rto << std::endl;
-            return _sent_time + _rto <= _parent._timer;
+        bool partial_ack(uint64_t abs_ackno) {
+            return _ackno - _segment.length_in_sequence_space() <= abs_ackno && abs_ackno < _ackno;
         }
 
-        //! update state (double rto, update sent_time)
-        void update();
-
-        //! if the ackno covered this segment
-        bool ack(uint64_t abs_ackno) { return abs_ackno >= _ackno; }
+        bool fully_ack(uint64_t abs_ackno) { return abs_ackno >= _ackno; }
     };
 
     //! outstanding segments that the TCPSender already sent but no ack.
