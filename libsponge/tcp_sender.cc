@@ -15,8 +15,6 @@ TCPSender::TCPSender(const size_t capacity, const uint16_t retx_timeout, const s
     , _stream(capacity) {
     _next_seqno = unwrap(_isn, _isn, 0);
     _rto = _initial_retransmission_timeout;
-
-    cout << "Initialized with retx-timeout=" << _initial_retransmission_timeout << endl;
 }
 
 uint64_t TCPSender::bytes_in_flight() const { return _next_seqno - _next_ackno; }
@@ -63,8 +61,6 @@ void TCPSender::fill_window() {
     while (_window && !_stream.eof() && _stream.buffer_size()) {
         size_t read_size = min(TCPConfig::MAX_PAYLOAD_SIZE, min(_stream.buffer_size(), _window));
         std::string payload = _stream.read(read_size);
-        cout << "read payload: \"" << payload << "\", now stream_in().bytes_written(): " << stream_in().bytes_written()
-             << endl;
         send_segment(false, _stream.eof() && payload.size() < _window, payload);
     }
 }
@@ -86,7 +82,6 @@ void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_si
             if (segment.fully_ack(abs_ackno)) {
                 _segments_outstanding.pop_front();
                 _zero_window = false;
-                cout << "segment " << segment.tcp_segment().header().seqno << " deleted" << endl;
             } else {
                 break;
             }
@@ -105,10 +100,6 @@ void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_si
         _zero_window = true;
     }
     fill_window();
-
-    cout << "After this ACK, eof: " << _stream.eof() << ", next_seqno_absolute(): " << next_seqno_absolute()
-         << ", stream_in().bytes_written() + 2: " << stream_in().bytes_written() + 2
-         << ", bytes in flight: " << bytes_in_flight() << endl;
 }
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
