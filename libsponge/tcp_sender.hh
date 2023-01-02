@@ -84,9 +84,9 @@ class TCPSender {
     //! outstanding segments that the TCPSender already sent but no ack.
     std::list<OutStandingSegment> _segments_outstanding{};
 
-    OutStandingSegment send_segment(const bool syn, const bool fin, const std::optional<std::string> payload = {});
-
   public:
+    OutStandingSegment send_segment(const uint16_t flag, std::optional<std::string> payload = {});
+
     //! Initialize a TCPSender
     TCPSender(const size_t capacity = TCPConfig::DEFAULT_CAPACITY,
               const uint16_t retx_timeout = TCPConfig::TIMEOUT_DFLT,

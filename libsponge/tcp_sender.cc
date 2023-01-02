@@ -1,3 +1,8 @@
+#define FIN 0x01
+#define SYN 0x02
+#define RST 0x04
+#define ACK 0x10
+
 #include "tcp_sender.hh"
 
 #include "tcp_config.hh"
@@ -19,12 +24,13 @@ TCPSender::TCPSender(const size_t capacity, const uint16_t retx_timeout, const s
 
 uint64_t TCPSender::bytes_in_flight() const { return _next_seqno - _next_ackno; }
 
-TCPSender::OutStandingSegment TCPSender::send_segment(const bool syn,
-                                                      const bool fin,
-                                                      std::optional<std::string> payload) {
+TCPSender::OutStandingSegment TCPSender::send_segment(const uint16_t flag, std::optional<std::string> payload) {
     TCPSegment tcpSegment;
-    tcpSegment.header().syn = syn;
-    tcpSegment.header().fin = fin;
+    tcpSegment.header().syn = flag & SYN;
+    tcpSegment.header().fin = flag & FIN;
+    tcpSegment.header().rst = flag & RST;
+    tcpSegment.header().ack = flag & ACK;
+
     tcpSegment.header().seqno = next_seqno();
 
     if (payload.has_value()) {
@@ -49,19 +55,19 @@ void TCPSender::fill_window() {
 
     // send syn only
     if (next_seqno_absolute() == 0) {
-        send_segment(true, false);
+        send_segment(SYN);
     }
 
     // send fin only
     if (_stream.eof() && _window) {
-        send_segment(false, true);
+        send_segment(FIN);
     }
 
     // fill window with data
     while (_window && !_stream.eof() && _stream.buffer_size()) {
         size_t read_size = min(TCPConfig::MAX_PAYLOAD_SIZE, min(_stream.buffer_size(), _window));
         std::string payload = _stream.read(read_size);
-        send_segment(false, _stream.eof() && payload.size() < _window, payload);
+        send_segment(_stream.eof() && payload.size() < _window ? FIN : 0, payload);
     }
 }
 
