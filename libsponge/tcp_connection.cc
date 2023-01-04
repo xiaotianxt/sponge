@@ -74,6 +74,10 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         if (_state == TCPState::State::ESTABLISHED) {
             // ESTABLISHED -> CLOSE-WAIT
             _sender.send_segment(0);
+            _linger_after_streams_finish = false;
+        } else if (_state == TCPState::State::CLOSE_WAIT) {
+            // CLOSE_WAIT, received 2nd FIN
+            _sender.send_segment(0);  // send a ACK segment
         } else if (_state == TCPState::State::LAST_ACK) {
             // LAST-ACK -> CLOSING
             _sender.send_segment(0);
@@ -96,10 +100,15 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         // CLOSING -> TIME-WAIT
     }
 
+    if (_state == TCPState::State::LAST_ACK && seg.header().ackno == _sender.next_seqno()) {
+        // LAST-ACK -> CLOSED
+        _active = false;
+    }
+
     _time_recv = 0;  // reset the timer
 
     // send to receiver to parse the segment
-    if (_state != TCPState::State::TIME_WAIT) {
+    if (_state != TCPState::State::TIME_WAIT && _state != TCPState::State::CLOSE_WAIT) {
         _receiver.segment_received(seg);
     }
 
@@ -118,9 +127,11 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
 }
 
 bool TCPConnection::active() const {
+    if (!_linger_after_streams_finish) {
+        return _active;
+    }
     return !(_sender.stream_in().error() || _receiver.stream_out().error()) and
-           (!_sender.stream_in().eof() || !_receiver.stream_out().eof() || !_linger_after_streams_finish ||
-            _cfg.rt_timeout * 10 > _time_recv);
+           (!_sender.stream_in().eof() || !_receiver.stream_out().eof() || _cfg.rt_timeout * 10 > _time_recv);
 }
 
 size_t TCPConnection::write(const string &data) {
@@ -131,8 +142,10 @@ size_t TCPConnection::write(const string &data) {
 }
 
 void TCPConnection::send_segments() {
+    cout << "Send " << _sender.segments_out().size() << " segments" << endl;
     while (_sender.segments_out().size()) {
         auto segment = _sender.segments_out().front();
+        cout << "segment: " << segment_description(segment) << endl;
         segment.header().win = _receiver.window_size();
         if (_receiver.ackno().has_value()) {
             segment.header().ackno = _receiver.ackno().value();

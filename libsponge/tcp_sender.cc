@@ -37,6 +37,10 @@ TCPSender::OutStandingSegment TCPSender::send_segment(const uint16_t flag, std::
         tcpSegment.payload() = Buffer(std::move(payload.value()));
     }
 
+    if (_segments_outstanding.size() == 0) {
+        _sent_time = _timer;
+    }
+
     OutStandingSegment outSegment(*this, tcpSegment);
     _segments_out.push(tcpSegment);
     _segments_outstanding.push_back(outSegment);
