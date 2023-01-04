@@ -21,8 +21,14 @@ class TCPConnection {
     //! in case the remote TCPConnection doesn't know we've received its whole stream?
     bool _linger_after_streams_finish{true};
 
+    //! If the TCP Connection is
+    bool _active{false};
+
     //! time after receiving a segment (ms)
     size_t _time_recv{0};
+
+    //! send segments from _sender.segments_out to this->_segments_out
+    void send_segments();
 
   public:
     //! \name "Input" interface for the writer

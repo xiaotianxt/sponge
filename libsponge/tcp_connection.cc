@@ -1,16 +1,27 @@
 #include "tcp_connection.hh"
-
+#define FIN 0x01
+#define SYN 0x02
+#define RST 0x04
+#define ACK 0x10
 #include <iostream>
-
-// Dummy implementation of a TCP connection
-
-// For Lab 4, please replace with a real implementation that passes the
-// automated checks run by `make check`.
-
-template <typename... Targs>
-void DUMMY_CODE(Targs &&... /* unused */) {}
+#include <sstream>
 
 using namespace std;
+
+string segment_description(const TCPSegment &seg) {
+    std::ostringstream o;
+    o << "(";
+    o << (seg.header().ack ? "A=1," : "A=0,");
+    o << (seg.header().rst ? "R=1," : "R=0,");
+    o << (seg.header().syn ? "S=1," : "S=0,");
+    o << (seg.header().fin ? "F=1," : "F=0,");
+    o << "ackno=" << seg.header().ackno << ",";
+    o << "win=" << seg.header().win << ",";
+    o << "seqno=" << seg.header().seqno << ",";
+    o << "payload_size=" << seg.payload().size() << ",";
+    o << "...)";
+    return o.str();
+}
 
 size_t TCPConnection::remaining_outbound_capacity() const { return _sender.stream_in().buffer_size(); }
 
@@ -18,21 +29,79 @@ size_t TCPConnection::bytes_in_flight() const { return _sender.bytes_in_flight()
 
 size_t TCPConnection::unassembled_bytes() const { return _receiver.unassembled_bytes(); }
 
-size_t TCPConnection::time_since_last_segment_received() const { return {}; }
+size_t TCPConnection::time_since_last_segment_received() const { return _time_recv; }
+
+void TCPConnection::connect() {
+    // Active Open, Send SYN. CLOSED -> SYN-SENT
+    _active = true;
+    if (_sender.next_seqno_absolute() != 0) {
+        return;
+    }
+    _sender.fill_window();
+    send_segments();
+}
 
 void TCPConnection::segment_received(const TCPSegment &seg) {
-    _time_recv = 0;  // reset the timer
-
     // kill the connection if RST is set
     if (seg.header().rst) {
         _sender.stream_in().set_error();
         _receiver.stream_out().set_error();
+        _linger_after_streams_finish = false;
         // TODO: kill the connection
         return;
     }
 
+    // check for syn
+    if (seg.header().syn) {
+        if (_active) {  // ACK sender
+            // SYN-SENT -> SYN-RECEIVED
+            _sender.send_segment(ACK);
+        } else if (seg.header().ack) {
+            // _active, receive SYN + ACK
+            // transision: SYN-SENT -> ESTABLISH
+            _sender.send_segment(ACK);
+        } else {
+            // LISTEN -> SYN-RECEIVED
+            _sender.send_segment(SYN | ACK);
+        }
+    }
+
+    // check for fin
+    auto _state = state();
+    if (seg.header().fin) {
+        cout << "Received a FIN from segment " << segment_description(seg) << endl;
+        cout << "Current state: " << _state.name() << endl;
+        if (_state == TCPState::State::ESTABLISHED) {
+            // ESTABLISHED -> CLOSE-WAIT
+            _sender.send_segment(0);
+        } else if (_state == TCPState::State::LAST_ACK) {
+            // LAST-ACK -> CLOSING
+            _sender.send_segment(0);
+        } else if (_state == TCPState::State::FIN_WAIT_1) {
+            // FIN-WAIT-1 -> CLOSING
+            //? the device doesn't receive an ACK for its own FIN
+            //? but receives a FIN from the other device
+            _sender.send_segment(ACK);
+        } else if (_state == TCPState::State::FIN_WAIT_2) {
+            // FIN-WAIT-2 -> TIME-WAIT
+            //? the device receives a FIN from the other device
+            _sender.send_segment(ACK);
+        } else if (_state == TCPState::State::TIME_WAIT) {
+            // TIME-WAIT + FIN -> Send ACK (second ACK for second FIN)
+            _sender.send_segment(ACK);
+        }
+    }
+
+    if (_state == TCPState::State::CLOSING && seg.header().ackno == _sender.next_seqno()) {
+        // CLOSING -> TIME-WAIT
+    }
+
+    _time_recv = 0;  // reset the timer
+
     // send to receiver to parse the segment
-    _receiver.segment_received(seg);
+    if (_state != TCPState::State::TIME_WAIT) {
+        _receiver.segment_received(seg);
+    }
 
     // update sender info about the ack and window size
     if (seg.header().ack) {
@@ -44,32 +113,59 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         seg.header().seqno == _receiver.ackno().value() - 1) {
         _sender.send_empty_segment();
     }
+
+    send_segments();
 }
 
-bool TCPConnection::active() const { return {}; }
+bool TCPConnection::active() const {
+    return !(_sender.stream_in().error() || _receiver.stream_out().error()) and
+           (!_sender.stream_in().eof() || !_receiver.stream_out().eof() || !_linger_after_streams_finish ||
+            _cfg.rt_timeout * 10 > _time_recv);
+}
 
 size_t TCPConnection::write(const string &data) {
     auto size_written = _sender.stream_in().write(data);
     _sender.fill_window();
+    send_segments();
     return size_written;
+}
+
+void TCPConnection::send_segments() {
+    while (_sender.segments_out().size()) {
+        auto segment = _sender.segments_out().front();
+        segment.header().win = _receiver.window_size();
+        if (_receiver.ackno().has_value()) {
+            segment.header().ackno = _receiver.ackno().value();
+            segment.header().ack = true;
+        }
+        _segments_out.push(segment);
+        _sender.segments_out().pop();
+    }
 }
 
 //! \param[in] ms_since_last_tick number of milliseconds since the last call to this method
 void TCPConnection::tick(const size_t ms_since_last_tick) {
     _sender.tick(ms_since_last_tick);
     _time_recv += ms_since_last_tick;
+
+    if (_sender.consecutive_retransmissions() > TCPConfig::MAX_RETX_ATTEMPTS) {
+        _sender.send_segment(RST);
+    }
+
+    send_segments();
 }
 
-void TCPConnection::end_input_stream() { _sender.stream_in().end_input(); }
-
-void TCPConnection::connect() { _sender.fill_window(); }
+void TCPConnection::end_input_stream() {
+    _sender.stream_in().end_input();
+    _sender.fill_window();
+    send_segments();
+}
 
 TCPConnection::~TCPConnection() {
     try {
         if (active()) {
-            cerr << "Warning: Unclean shutdown of TCPConnection\n";
-
-            // Your code here: need to send a RST segment to the peer
+            _sender.send_segment(RST);
+            send_segments();
         }
     } catch (const exception &e) {
         std::cerr << "Exception destructing TCP FSM: " << e.what() << std::endl;
