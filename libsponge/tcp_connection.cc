@@ -123,14 +123,21 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         _sender.send_empty_segment();
     }
 
+    if (state() == TCPState::State::ESTABLISHED && _sender.segments_out().size() == 0 && seg.payload().size()) {
+        _sender.send_segment(0);
+    }
+
     send_segments();
 }
 
 bool TCPConnection::active() const {
+    if (_sender.stream_in().error() or _receiver.stream_out().error()) {
+        return false;
+    }
     if (!_linger_after_streams_finish) {
         return _active;
     }
-    return !(_sender.stream_in().error() || _receiver.stream_out().error()) and
+    return !_sender.stream_in().error() and !_receiver.stream_out().error() and
            (!_sender.stream_in().eof() || !_receiver.stream_out().eof() || _cfg.rt_timeout * 10 > _time_recv);
 }
 
@@ -142,7 +149,6 @@ size_t TCPConnection::write(const string &data) {
 }
 
 void TCPConnection::send_segments() {
-    cout << "Send " << _sender.segments_out().size() << " segments" << endl;
     while (_sender.segments_out().size()) {
         auto segment = _sender.segments_out().front();
         cout << "segment: " << segment_description(segment) << endl;
