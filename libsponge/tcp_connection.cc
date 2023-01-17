@@ -44,10 +44,7 @@ void TCPConnection::connect() {
 void TCPConnection::segment_received(const TCPSegment &seg) {
     // kill the connection if RST is set
     if (seg.header().rst) {
-        _sender.stream_in().set_error();
-        _receiver.stream_out().set_error();
-        _linger_after_streams_finish = false;
-        // TODO: kill the connection
+        kill();
         return;
     }
 
@@ -149,14 +146,15 @@ size_t TCPConnection::write(const string &data) {
 }
 
 void TCPConnection::send_segments() {
+    cout << "send " << _sender.segments_out().size() << " segments" << endl;
     while (_sender.segments_out().size()) {
         auto segment = _sender.segments_out().front();
-        cout << "segment: " << segment_description(segment) << endl;
         segment.header().win = _receiver.window_size();
         if (_receiver.ackno().has_value()) {
             segment.header().ackno = _receiver.ackno().value();
             segment.header().ack = true;
         }
+        cout << "segment: " << segment_description(segment) << endl;
         _segments_out.push(segment);
         _sender.segments_out().pop();
     }
@@ -169,9 +167,16 @@ void TCPConnection::tick(const size_t ms_since_last_tick) {
 
     if (_sender.consecutive_retransmissions() > TCPConfig::MAX_RETX_ATTEMPTS) {
         _sender.send_segment(RST);
+        kill();
     }
 
     send_segments();
+}
+
+void TCPConnection::kill() {
+    _sender.stream_in().set_error();
+    _receiver.stream_out().set_error();
+    _linger_after_streams_finish = false;
 }
 
 void TCPConnection::end_input_stream() {

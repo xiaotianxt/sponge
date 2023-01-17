@@ -17,15 +17,15 @@ void TCPReceiver::segment_received(const TCPSegment &seg) {
     }
 
     string payload = seg.payload().copy();
-    uint64_t index = unwrap(seg.header().seqno, _isn, _seq);
+    uint64_t index = unwrap(seg.header().seqno, _isn, _seq) - (!syn);
 
     // update payload and stream info
-    if (_syn_received && index > 0) {
-        auto acceptable_end = abs_ackno() + _capacity;
-        if (index >= acceptable_end) {
-            _reassembler.push_substring("", index - (!syn), fin);
+    if (_syn_received) {
+        auto acceptable_end = abs_ackno() + _capacity - (!syn);
+        if (index >= acceptable_end || index + payload.size() < abs_ackno() - (!syn)) {
+            _reassembler.push_substring("", index, fin);
         } else {
-            _reassembler.push_substring(payload, index - (!syn), fin);
+            _reassembler.push_substring(payload, index, fin);
         }
     }
     _seq = index;

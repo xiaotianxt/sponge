@@ -30,6 +30,8 @@ class TCPConnection {
     //! send segments from _sender.segments_out to this->_segments_out
     void send_segments();
 
+    void kill();
+
   public:
     //! \name "Input" interface for the writer
     //!@{
