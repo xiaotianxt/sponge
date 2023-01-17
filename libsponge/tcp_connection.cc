@@ -66,8 +66,6 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
     // check for fin
     auto _state = state();
     if (seg.header().fin) {
-        cout << "Received a FIN from segment " << segment_description(seg) << endl;
-        cout << "Current state: " << _state.name() << endl;
         if (_state == TCPState::State::ESTABLISHED) {
             // ESTABLISHED -> CLOSE-WAIT
             _sender.send_segment(0);
@@ -146,7 +144,6 @@ size_t TCPConnection::write(const string &data) {
 }
 
 void TCPConnection::send_segments() {
-    cout << "send " << _sender.segments_out().size() << " segments" << endl;
     while (_sender.segments_out().size()) {
         auto segment = _sender.segments_out().front();
         segment.header().win = _receiver.window_size();
@@ -154,7 +151,6 @@ void TCPConnection::send_segments() {
             segment.header().ackno = _receiver.ackno().value();
             segment.header().ack = true;
         }
-        cout << "segment: " << segment_description(segment) << endl;
         _segments_out.push(segment);
         _sender.segments_out().pop();
     }
@@ -162,13 +158,15 @@ void TCPConnection::send_segments() {
 
 //! \param[in] ms_since_last_tick number of milliseconds since the last call to this method
 void TCPConnection::tick(const size_t ms_since_last_tick) {
+    if (_sender.consecutive_retransmissions() >= TCPConfig::MAX_RETX_ATTEMPTS) {
+        _sender.send_segment(RST);
+        send_segments();
+        kill();
+        return;
+    }
+
     _sender.tick(ms_since_last_tick);
     _time_recv += ms_since_last_tick;
-
-    if (_sender.consecutive_retransmissions() > TCPConfig::MAX_RETX_ATTEMPTS) {
-        _sender.send_segment(RST);
-        kill();
-    }
 
     send_segments();
 }
